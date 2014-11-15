@@ -5,21 +5,114 @@ output:
     keep_md: true
 ---
 
+It is expected your current working directory is set to application root path in order to see all the files, existing in the assessment repository
 
 ## Loading and preprocessing the data
 
+```{r loadData,echo=FALSE}
+if(!file.exists("activity.csv"))
+   ifelse(file.exists("activity.zip"),
+        unzip("activity.zip", overwrite = FALSE),
+        print("Cannot see zip file. Are you sure you are in the correct working directory?")
+    )
 
+data <- read.csv("activity.csv")
+```
+
+Let's convert *date* variable to ```Date``` type
+
+```{r toDate,echo=FALSE}
+data$date <- as.Date(data$date, "%Y-%m-%d")
+```
 
 ## What is mean total number of steps taken per day?
 
+Let us produce histogram of total steps taken per day
 
+```{r plotHist}
+stepsPerDay <- aggregate(steps ~ date, data = data, FUN = function(x) c(steps = sum(x, na.rm = TRUE)))
+
+plot(stepsPerDay$date, stepsPerDay$steps, type = "h", xlab = "Date", ylab = "Steps", lwd = c(5))
+```
+
+Oddly, we see median for the whole ```steps``` column is equal to zero, so as in the day-by-day report. This gives a presumption of data having a lot of zero values
+
+```{r basicStats}
+summary(data$steps)
+
+stats <- aggregate(steps ~ date, data = data, FUN = function(x) c(mean = mean(x, na.rm = TRUE), median = median(x, na.rm = TRUE)))
+stats
+```
 
 ## What is the average daily activity pattern?
 
+```{r plotIntervals}
+stepsPerInterval <- aggregate(steps ~ interval, data = data, FUN = function(x) c(steps = mean(x, na.rm = TRUE)))
 
+plot(stepsPerInterval$interval, stepsPerInterval$steps, type = "l", xlab = "Interval", ylab = "Average of steps")
+```
+
+```{r maxAveragePerInterval,echo=FALSE,results='hide'}
+maxAverage <- max(stepsPerInterval$steps)
+maxReached <- stepsPerInterval$interval[which.max(stepsPerInterval$steps)]
+```
+As we can see the highest average of `r maxAverage` is reached during `r maxReached` interval
 
 ## Imputing missing values
 
+```{r missingRows,echo=FALSE,results='hide'}
+missing <- is.na(data$steps)
+missingCount <- sum(missing)
+```
+There are `r missingCount` missing values for ```steps``` variable in our dataset. Let us try to autopopulate them by following algorithm:
 
+* Populate missing values with zeroes
+* Replace those zeroes with mean value for the particular day
+  * Replaced values will naturally be very low because of the first step
+
+```{r simulateNAs,echo=FALSE}
+newData <- data
+newData[missing, "steps"] <- 0
+
+newStepsPerDay <- aggregate(steps ~ date, data = newData, FUN = function(x) c(steps = mean(x)))
+
+for (i in newData[missing, c("date", "interval")]) newData[newData$date == i[1] && newData$interval == i[2], "steps"] <- floor(newStepsPerDay[newStepsPerDay$date == i[1], "steps"])
+```
+
+Statistics and plot with prepopulated values is as follows:
+
+```{r newSimpleStats}
+newStats <- aggregate(steps ~ date, data = newData, FUN = function(x) c(mean = mean(x), median = median(x)))
+newStats
+```
+
+```{r newPlotHist}
+plot(aggregate(steps ~ date, data = newData, FUN = function(x) c(steps = sum(x))), type = "h", xlab = "Date", ylab = "Steps", lwd = c(5))
+```
+
+Let us calculate what is the difference between original data set and modified
+
+```{r diffStat}
+differ <- merge(stats, newStats, by = "date")
+differ$steps.x[, "mean"] - differ$steps.y[, "mean"]
+differ$steps.x[, "median"] - differ$steps.y[, "median"]
+```
+
+All zeroes says to us that no missing values where present during any other day but fully throughout the day. which is why we have smaller joined table of difference comparison
 
 ## Are there differences in activity patterns between weekdays and weekends?
+
+Add extra columns to prepopulated dataset, identifying if the day is weekday or weekend and plot everything:
+
+```{r weekDays,fig.height=10}
+newData <- transform(newData, weekday = as.POSIXlt(date)$wday <= 5)
+newData <- transform(newData, weekend = as.POSIXlt(date)$wday > 5)
+
+newStepsPerIntervalWeekday <- aggregate(steps ~ interval, data = newData[newData$weekday == TRUE, ], FUN = function(x) c(steps = mean(x)))
+newStepsPerIntervalWeekend <- aggregate(steps ~ interval, data = newData[newData$weekend == TRUE, ], FUN = function(x) c(steps = mean(x)))
+
+par(mfrow = c(2, 1))
+
+plot(newStepsPerIntervalWeekday$interval, newStepsPerIntervalWeekday$steps, type = "l", xlab = "Interval", ylab = "Average of steps during weekdays")
+plot(newStepsPerIntervalWeekend$interval, newStepsPerIntervalWeekend$steps, type = "l", xlab = "Interval", ylab = "Average of steps during weekends")
+```
